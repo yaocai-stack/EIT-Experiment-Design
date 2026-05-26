@@ -59,13 +59,12 @@ def build_xi_from_FG_torch(F: torch.Tensor, G: torch.Tensor) -> torch.Tensor:
     if G.shape != (c, L):
         raise ValueError(f"G must have shape {(c, L)}, got {tuple(G.shape)}")
 
-    # Use the same ordering as build_xi_design_matrix.py:
-    # for each j in G, cycle i over all rows of F.
-    rows = []
-    for j in range(c):
-        for i in range(c):
-            rows.append(torch.kron(F[i], G[j]))
-    return torch.stack(rows, dim=0)
+    # Same ordering as build_xi_design_matrix.py: row r = j*c + i is kron(F[i], G[j]).
+    return (
+        (F[:, None, :, None] * G[None, :, None, :])
+        .permute(1, 0, 2, 3)
+        .reshape(c * c, L * L)
+    )
 
 
 def optimize_xi_cond(
@@ -148,12 +147,9 @@ def optimize_xi_cond(
         xi = frob_normalize(xi)
         M = xi @ A
         loss = spectral_cond_torch(M)
+        k_after = float(loss.detach().cpu())
         loss.backward()
         opt.step()
-
-        with torch.no_grad():
-            xi = frob_normalize(build_xi_from_FG_torch(F, G))
-            k_after = float(spectral_cond_torch(xi @ A).cpu())
 
         history.append(k_after)
 
